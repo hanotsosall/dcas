@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>💬 Dragon Chat</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .chat-full { max-width: 800px; margin: 50px auto; background: #111; border-radius: 40px; padding: 20px; }
+        .chat-messages-full { height: 500px; overflow-y: auto; margin-bottom: 20px; }
+        .chat-input-full { display: flex; gap: 10px; }
+        .chat-input-full input { flex: 1; padding: 12px; border-radius: 40px; background: #222; border: 1px solid gold; color: gold; }
+    </style>
+</head>
+<body>
+    <div class="chat-full">
+        <h2>💬 Общий чат казино</h2>
+        <div class="chat-messages-full" id="chatMessagesFull"></div>
+        <div class="chat-input-full">
+            <input type="text" id="chatInputFull" placeholder="Сообщение...">
+            <button id="chatSendFull">Отправить</button>
+        </div>
+    </div>
+    <script>
+        async function loadChat() {
+            const res = await fetch('/api/chat/messages');
+            const msgs = await res.json();
+            const container = document.getElementById('chatMessagesFull');
+            container.innerHTML = msgs.map(m => `<div><b>${escapeHtml(m.username)}</b> [${new Date(m.created_at).toLocaleTimeString()}]: ${escapeHtml(m.message)}</div>`).join('');
+            container.scrollTop = container.scrollHeight;
+        }
+        async function send() {
+            const msg = document.getElementById('chatInputFull').value;
+            if(!msg) return;
+            await fetch('/api/chat/send', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({message: msg}) });
+            document.getElementById('chatInputFull').value = '';
+            loadChat();
+        }
+        function escapeHtml(s) { return s.replace(/[&<>]/g, function(m){ if(m==='&') return '&amp;'; if(m==='<') return '&lt;'; if(m==='>') return '&gt;'; return m;}); }
+        document.getElementById('chatSendFull').onclick = send;
+        document.getElementById('chatInputFull').addEventListener('keypress', e => { if(e.key==='Enter') send(); });
+        loadChat();
+        setInterval(loadChat, 3000);
+    </script>
+</body>
+</html>
