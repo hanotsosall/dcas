@@ -1,5 +1,5 @@
 import random
-from database import get_db, update_balance, log_transaction
+from db_utils import get_db, update_balance, log_transaction
 
 SYMBOLS = [
     {"name": "🍒", "color": "#e74c3c", "value": 5, "bonus": False},
