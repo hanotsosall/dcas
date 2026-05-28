@@ -314,3 +314,224 @@ setInterval(() => {
 }, 10000);
 
 console.log('Dragon God Casino – основной скрипт загружен');
+
+// ========================
+// РУЛЕТКА
+// ========================
+function initRouletteBoard() {
+    const board = document.getElementById('rouletteBoard');
+    if (!board) return;
+    board.innerHTML = '';
+    for (let i = 0; i <= 36; i++) {
+        const cell = document.createElement('div');
+        cell.className = 'roulette-cell';
+        cell.innerText = i;
+        if (i === 0) cell.style.background = '#2ecc71';
+        else if ([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36].includes(i)) cell.style.background = '#e74c3c';
+        else cell.style.background = '#2c3e50';
+        cell.onclick = (function(num) { return () => selectRouletteBet('number', num); })(i);
+        board.appendChild(cell);
+    }
+    const extras = document.createElement('div');
+    extras.className = 'roulette-extras';
+    extras.innerHTML = `
+        <button data-color="red">🔴 КРАСНОЕ (x2)</button>
+        <button data-color="black">⚫ ЧЁРНОЕ (x2)</button>
+        <button data-parity="even">ЧЁТ (x2)</button>
+        <button data-parity="odd">НЕЧЁТ (x2)</button>
+        <button data-dozen="0">1-12 (x3)</button>
+        <button data-dozen="1">13-24 (x3)</button>
+        <button data-dozen="2">25-36 (x3)</button>
+    `;
+    board.appendChild(extras);
+    document.querySelectorAll('[data-color]').forEach(btn => {
+        btn.onclick = () => selectRouletteBet('color', btn.getAttribute('data-color'));
+    });
+    document.querySelectorAll('[data-parity]').forEach(btn => {
+        btn.onclick = () => selectRouletteBet('evenodd', btn.getAttribute('data-parity'));
+    });
+    document.querySelectorAll('[data-dozen]').forEach(btn => {
+        btn.onclick = () => selectRouletteBet('dozen', parseInt(btn.getAttribute('data-dozen')));
+    });
+}
+
+function selectRouletteBet(type, value) {
+    currentRouletteBetType = type;
+    currentRouletteBet = value;
+    showNotification(`Ставка: ${type} = ${value}`, 'info');
+}
+
+async function playRoulette() {
+    if (!currentUser) { showNotification('Авторизуйтесь', 'error'); return; }
+    const bet = parseInt(document.getElementById('rouletteBet').value);
+    if (isNaN(bet) || bet <= 0) { showNotification('Введите ставку', 'error'); return; }
+    if (!currentRouletteBet) { showNotification('Сделайте ставку на поле', 'error'); return; }
+    const total = mainBalance + bonusBalance;
+    if (total < bet) { showNotification('Не хватает средств', 'error'); return; }
+    try {
+        const res = await fetch('/api/roulette', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bet, bet_type: currentRouletteBetType, value: currentRouletteBet })
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        mainBalance = data.balance;
+        bonusBalance = data.bonus_balance;
+        document.getElementById('mainBalance').innerText = formatNumber(mainBalance);
+        document.getElementById('bonusBalance').innerText = formatNumber(bonusBalance);
+        const wheel = document.getElementById('rouletteWheel');
+        wheel.innerHTML = `<div class="wheel-result">${data.result.number}</div>`;
+        wheel.style.animation = 'spin 0.8s ease-out';
+        setTimeout(() => wheel.style.animation = '', 800);
+        if (data.win > 0) showNotification(`Выигрыш ${data.win}!`, 'win');
+        else showNotification(`Выпало ${data.result.number} – проигрыш`, 'error');
+    } catch (err) {
+        showNotification(err.message, 'error');
+    }
+}
+
+// ========================
+// КРАШ (CRASH)
+// ========================
+async function fetchCrashStatus() {
+    try {
+        const res = await fetch('/api/crash/status');
+        const data = await res.json();
+        document.getElementById('crashMultiplier').innerText = data.multiplier.toFixed(2) + 'x';
+        if (!data.running && crashActive) {
+            // Краш произошёл, активные ставки проиграны
+            if (crashInterval) clearInterval(crashInterval);
+            crashActive = false;
+            document.getElementById('crashBetBtn').disabled = false;
+            document.getElementById('crashCashoutBtn').disabled = true;
+            showNotification(`💥 КРАШ на x${data.multiplier.toFixed(2)}!`, 'error');
+            updateCrashHistory(data.multiplier);
+        }
+    } catch(e) {}
+}
+
+async function startCrashBet() {
+    if (!currentUser) { showNotification('Авторизуйтесь', 'error'); return; }
+    const bet = parseInt(document.getElementById('crashBet').value);
+    if (isNaN(bet) || bet <= 0) { showNotification('Введите ставку', 'error'); return; }
+    const total = mainBalance + bonusBalance;
+    if (total < bet) { showNotification('Не хватает средств', 'error'); return; }
+    try {
+        const res = await fetch('/api/crash/bet', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bet })
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        mainBalance = data.balance;
+        bonusBalance = data.bonus_balance;
+        document.getElementById('mainBalance').innerText = formatNumber(mainBalance);
+        document.getElementById('bonusBalance').innerText = formatNumber(bonusBalance);
+        crashActive = true;
+        crashBetAmount = bet;
+        currentCrashSession = data.session_id;
+        document.getElementById('crashBetBtn').disabled = true;
+        document.getElementById('crashCashoutBtn').disabled = false;
+        if (crashInterval) clearInterval(crashInterval);
+        crashInterval = setInterval(fetchCrashStatus, 300);
+        showNotification(`Ставка ${bet} сделана. Ждите роста...`, 'info');
+    } catch (err) {
+        showNotification(err.message, 'error');
+    }
+}
+
+async function cashoutCrash() {
+    if (!crashActive || !currentCrashSession) return;
+    try {
+        const res = await fetch('/api/crash/cashout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session_id: currentCrashSession })
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        mainBalance = data.balance;
+        bonusBalance = data.bonus_balance;
+        document.getElementById('mainBalance').innerText = formatNumber(mainBalance);
+        document.getElementById('bonusBalance').innerText = formatNumber(bonusBalance);
+        showNotification(`💰 Забрали x${(data.win / crashBetAmount).toFixed(2)}! Выигрыш: ${data.win}`, 'win');
+        crashActive = false;
+        clearInterval(crashInterval);
+        document.getElementById('crashBetBtn').disabled = false;
+        document.getElementById('crashCashoutBtn').disabled = true;
+        // добавим в историю
+        const mult = data.win / crashBetAmount;
+        updateCrashHistory(mult);
+    } catch (err) {
+        showNotification(err.message, 'error');
+    }
+}
+
+function updateCrashHistory(multiplier = null) {
+    if (multiplier) crashHistory.unshift(multiplier);
+    const historyDiv = document.getElementById('crashHistory');
+    if (!historyDiv) return;
+    historyDiv.innerHTML = crashHistory.slice(0, 12).map(x => `<span class="crash-hist-item">${x.toFixed(2)}x</span>`).join('');
+}
+
+// ========================
+// КОСТИ (DICE)
+// ========================
+let dicePrediction = 'under';
+let diceTarget = 50;
+
+function initDice() {
+    document.querySelectorAll('.dice-pred-btn').forEach(btn => {
+        btn.onclick = () => {
+            dicePrediction = btn.getAttribute('data-pred');
+            document.getElementById('diceTargetContainer').style.display = dicePrediction === 'number' ? 'block' : 'none';
+        };
+    });
+    document.getElementById('diceTarget')?.addEventListener('input', (e) => {
+        diceTarget = parseInt(e.target.value) || 50;
+        if (diceTarget < 1) diceTarget = 1;
+        if (diceTarget > 100) diceTarget = 100;
+    });
+}
+
+async function playDice() {
+    if (!currentUser) { showNotification('Авторизуйтесь', 'error'); return; }
+    const bet = parseInt(document.getElementById('diceBet').value);
+    if (isNaN(bet) || bet <= 0) { showNotification('Введите ставку', 'error'); return; }
+    const total = mainBalance + bonusBalance;
+    if (total < bet) { showNotification('Не хватает средств', 'error'); return; }
+    const target = dicePrediction === 'number' ? diceTarget : 50;
+    try {
+        const res = await fetch('/api/dice', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ bet, prediction: dicePrediction, target })
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        mainBalance = data.balance;
+        bonusBalance = data.bonus_balance;
+        document.getElementById('mainBalance').innerText = formatNumber(mainBalance);
+        document.getElementById('bonusBalance').innerText = formatNumber(bonusBalance);
+        const roll = data.result.roll;
+        document.getElementById('diceResult').innerHTML = `🎲 ${roll}`;
+        if (data.win > 0) {
+            showNotification(`Выпало ${roll}! Выигрыш: ${data.win}`, 'win');
+            document.getElementById('diceResult').style.animation = 'bounce 0.5s';
+            setTimeout(() => document.getElementById('diceResult').style.animation = '', 500);
+        } else {
+            showNotification(`Выпало ${roll} – проигрыш`, 'error');
+        }
+    } catch (err) {
+        showNotification(err.message, 'error');
+    }
+}
+
+// Подключаем обработчики для рулетки, краша, костей
+document.getElementById('rouletteSpinBtn')?.addEventListener('click', playRoulette);
+document.getElementById('crashBetBtn')?.addEventListener('click', startCrashBet);
+document.getElementById('crashCashoutBtn')?.addEventListener('click', cashoutCrash);
+document.getElementById('dicePlayBtn')?.addEventListener('click', playDice);
+initDice();
