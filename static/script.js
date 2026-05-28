@@ -468,3 +468,20 @@ setInterval(() => {
         onlineSpan.innerText = cur.toLocaleString();
     }
 }, 10000);
+
+// Мобильное меню
+const menuToggle = document.getElementById('mobileMenuToggle');
+const sidebar = document.getElementById('sidebar');
+if (menuToggle && sidebar) {
+    menuToggle.addEventListener('click', () => {
+        sidebar.classList.toggle('open');
+        menuToggle.textContent = sidebar.classList.contains('open') ? '✕' : '☰';
+    });
+    // Закрыть при клике на ссылку
+    document.querySelectorAll('.nav-item').forEach(link => {
+        link.addEventListener('click', () => {
+            sidebar.classList.remove('open');
+            menuToggle.textContent = '☰';
+        });
+    });
+}
