@@ -1,5 +1,5 @@
 import random
-from database import get_db
+from db_utils import get_db
 
 SYMBOLS_OLY = ['⚡', '💎', '🏺', '🦅', '🐉']
 MULTIPLIERS = {'⚡': 3, '💎': 10, '🏺': 5, '🦅': 8, '🐉': 20}
