@@ -11,6 +11,11 @@ from datetime import datetime, timedelta
 import random
 import string
 
+@app.route('/api/spin', methods=['POST'])
+@login_required
+def api_spin():
+    from games.slots import spin_slots
+
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dragon_god_key_2025')
 app.permanent_session_lifetime = timedelta(days=7)
