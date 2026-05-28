@@ -381,7 +381,6 @@ async function loadProfileStats() {
 }
 
 async function loadReferralLink() {
-    if (!currentUser) return;
     const res = await fetch('/api/referral/link');
     const data = await res.json();
     document.getElementById('referralLink').value = data.link;
