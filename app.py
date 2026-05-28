@@ -3,8 +3,10 @@ import sqlite3
 import bcrypt
 import random
 import json
+import string
 from datetime import datetime, timedelta
-from flask import Flask, render_template, request, jsonify, session, g
+from functools import wraps
+from flask import Flask, render_template, request, jsonify, session, g, redirect, url_for
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dragon_god_key_2025')
@@ -35,7 +37,7 @@ def init_db():
             username TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
             email TEXT,
-            balance INTEGER DEFAULT 1000,
+            balance INTEGER DEFAULT 0,
             bonus_balance INTEGER DEFAULT 0,
             vip_level INTEGER DEFAULT 0,
             total_bet INTEGER DEFAULT 0,
@@ -73,7 +75,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             referrer_id INTEGER,
             referred_id INTEGER,
-            commission INTEGER,
+            commission INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )''')
         cursor.execute('''CREATE TABLE IF NOT EXISTS chat_messages (
@@ -84,18 +86,17 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )''')
         db.commit()
-        # Создать админа, если нет
+        # Создать админа если нет
         admin = cursor.execute("SELECT * FROM users WHERE username='admin'").fetchone()
         if not admin:
             hashed = bcrypt.hashpw('admin123'.encode(), bcrypt.gensalt()).decode()
-            cursor.execute("INSERT INTO users (username, password, is_admin, balance) VALUES (?,?,?,?)",
+            cursor.execute("INSERT INTO users (username, password, is_admin, balance) VALUES (?, ?, ?, ?)",
                            ('admin', hashed, 1, 1000000))
             db.commit()
 init_db()
 
-# ---------- Хелперы ----------
+# ---------- Декораторы ----------
 def login_required(f):
-    from functools import wraps
     @wraps(f)
     def decorated(*args, **kwargs):
         if 'user_id' not in session:
@@ -104,7 +105,6 @@ def login_required(f):
     return decorated
 
 def admin_required(f):
-    from functools import wraps
     @wraps(f)
     def decorated(*args, **kwargs):
         if 'user_id' not in session:
@@ -116,53 +116,23 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated
 
-def update_balance(user_id, delta):
+# ---------- Вспомогательные функции ----------
+def generate_bonus_code(length=12):
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
+
+def update_balance(user_id, delta, is_bonus=False):
     db = get_db()
-    db.execute("UPDATE users SET balance = balance + ? WHERE id=?", (delta, user_id))
+    if is_bonus:
+        db.execute("UPDATE users SET bonus_balance = bonus_balance + ? WHERE id=?", (delta, user_id))
+    else:
+        db.execute("UPDATE users SET balance = balance + ? WHERE id=?", (delta, user_id))
     db.commit()
 
-# ---------- Слоты ----------
-SLOT_SYMBOLS = [
-    {"name": "🍒", "color": "#e74c3c", "value": 2},
-    {"name": "🍋", "color": "#f1c40f", "value": 3},
-    {"name": "🍊", "color": "#e67e22", "value": 4},
-    {"name": "🍉", "color": "#2ecc71", "value": 5},
-    {"name": "💎", "color": "#1abc9c", "value": 10},
-    {"name": "7️⃣", "color": "#f39c12", "value": 20},
-    {"name": "🐉", "color": "#9b59b6", "value": 0, "bonus": True}
-]
-WEIGHTS = [18, 16, 14, 10, 6, 4, 2]
-
-def generate_reels():
-    return [[random.choices(SLOT_SYMBOLS, weights=WEIGHTS)[0] for _ in range(3)] for _ in range(5)]
-
-def calculate_win(reels, bet):
-    win = 0
-    bonus = 0
-    lines = [
-        [(0,0),(1,0),(2,0),(3,0),(4,0)],
-        [(0,1),(1,1),(2,1),(3,1),(4,1)],
-        [(0,2),(1,2),(2,2),(3,2),(4,2)],
-        [(0,0),(1,1),(2,2),(3,1),(4,0)],
-        [(0,2),(1,1),(2,0),(3,1),(4,2)]
-    ]
-    for line in lines:
-        first = reels[line[0][0]][line[0][1]]
-        if first.get('bonus'): continue
-        same = True
-        for x,y in line[1:]:
-            if reels[x][y]['name'] != first['name']:
-                same = False
-                break
-        if same:
-            win += bet * first['value']
-    for col in reels:
-        for sym in col:
-            if sym.get('bonus'): bonus += 1
-    center = [reels[i][1] for i in range(5)]
-    if all(s['name'] == "7️⃣" for s in center):
-        win += 5000
-    return win, bonus
+def log_transaction(user_id, amount, type, game=None):
+    db = get_db()
+    db.execute("INSERT INTO transactions (user_id, amount, type, game) VALUES (?,?,?,?)",
+               (user_id, amount, type, game))
+    db.commit()
 
 # ---------- Маршруты ----------
 @app.route('/')
@@ -176,19 +146,38 @@ def admin_panel():
 @app.route('/api/register', methods=['POST'])
 def register():
     data = request.json
-    username = data.get('username')
-    password = data.get('password')
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+    email = data.get('email', '')
+    ref = data.get('ref_code', '')
     if not username or not password:
-        return jsonify({'error': 'Заполните поля'})
-    hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+        return jsonify({'error': 'Заполните все поля'})
     db = get_db()
-    try:
-        db.execute("INSERT INTO users (username, password, bonus_balance) VALUES (?, ?, ?)",
-                   (username, hashed, 5000))
+    existing = db.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
+    if existing:
+        return jsonify({'error': 'Имя уже занято'})
+    hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    referrer_id = None
+    if ref:
+        ref_user = db.execute("SELECT id FROM users WHERE username=?", (ref,)).fetchone()
+        if ref_user:
+            referrer_id = ref_user['id']
+    cursor = db.execute(
+        "INSERT INTO users (username, password, email, referrer_id, bonus_balance) VALUES (?,?,?,?,?)",
+        (username, hashed, email, referrer_id, 5000)
+    )
+    db.commit()
+    user_id = cursor.lastrowid
+    if referrer_id:
+        db.execute("UPDATE users SET balance = balance + 100 WHERE id=?", (referrer_id,))
+        db.execute("INSERT INTO referrals (referrer_id, referred_id, commission) VALUES (?,?,?)",
+                   (referrer_id, user_id, 100))
         db.commit()
-        return jsonify({'ok': True})
-    except sqlite3.IntegrityError:
-        return jsonify({'error': 'Логин занят'})
+    # Автовход
+    session.permanent = True
+    session['user_id'] = user_id
+    session['username'] = username
+    return jsonify({'ok': True, 'user': {'id': user_id, 'username': username, 'balance': 0, 'bonus_balance': 5000}})
 
 @app.route('/api/login', methods=['POST'])
 def login():
@@ -196,7 +185,7 @@ def login():
     username = data.get('username', '')
     password = data.get('password', '')
     db = get_db()
-    user = db.execute("SELECT id, username, password, balance, is_admin FROM users WHERE username=?", (username,)).fetchone()
+    user = db.execute("SELECT id, username, password, balance, bonus_balance, is_admin FROM users WHERE username=?", (username,)).fetchone()
     if not user or not bcrypt.checkpw(password.encode(), user['password'].encode()):
         return jsonify({'error': 'Неверные данные'}), 401
     session.permanent = True
@@ -204,7 +193,11 @@ def login():
     session['username'] = user['username']
     db.execute("UPDATE users SET last_seen = CURRENT_TIMESTAMP WHERE id=?", (user['id'],))
     db.commit()
-    return jsonify({'ok': True, 'user': {'id': user['id'], 'username': user['username'], 'balance': user['balance'], 'is_admin': user['is_admin']}})
+    return jsonify({'ok': True, 'user': {
+        'id': user['id'], 'username': user['username'],
+        'balance': user['balance'], 'bonus_balance': user['bonus_balance'],
+        'is_admin': user['is_admin']
+    }})
 
 @app.route('/api/logout', methods=['POST'])
 def logout():
@@ -217,77 +210,141 @@ def get_user():
         return jsonify({'error': 'Not logged'}), 401
     db = get_db()
     user = db.execute("SELECT id, username, balance, bonus_balance, vip_level, total_bet, total_win, is_admin FROM users WHERE id=?", (session['user_id'],)).fetchone()
-    if not user:
-        return jsonify({'error': 'Not found'}), 404
     return jsonify(dict(user))
 
+# ---------- Слоты ----------
 @app.route('/api/spin', methods=['POST'])
 @login_required
 def api_spin():
+    from games.slots import spin_slots
     data = request.json
     bet = int(data.get('bet', 10))
     is_free = data.get('is_freespin', False)
-    db = get_db()
-    user = db.execute("SELECT balance FROM users WHERE id=?", (session['user_id'],)).fetchone()
-    if not is_free and user['balance'] < bet:
+    result, win, new_balance, new_bonus, bonus_trigger = spin_slots(session['user_id'], bet, is_free)
+    if result is None:
         return jsonify({'error': 'Недостаточно средств'}), 400
-    reels = generate_reels()
-    win, bonus_cnt = calculate_win(reels, bet)
-    if is_free:
-        win *= 2
-    delta = win - bet if not is_free else win
-    new_balance = user['balance'] + delta
-    update_balance(session['user_id'], delta)
-    db.execute("INSERT INTO spin_log (user_id, game, bet, win, details) VALUES (?,?,?,?,?)",
-               (session['user_id'], 'slots', bet, win, json.dumps(reels)))
-    db.commit()
-    reels_out = [[{'name': s['name'], 'color': s['color']} for s in col] for col in reels]
-    trigger = bonus_cnt >= 3 and not is_free
     return jsonify({
-        'reels': reels_out,
+        'reels': result['reels'],
         'win': win,
         'balance': new_balance,
-        'bonus_trigger': trigger,
-        'freespins_left': 10 if trigger else 0
+        'bonus_balance': new_bonus,
+        'bonus_trigger': bonus_trigger,
+        'freespins_left': 10 if bonus_trigger else 0
     })
 
-# ---------- Остальные игры (рулетка, краш, кости) для краткости опущены, можно добавить по аналогии ----------
-# Для простоты добавим заглушки, чтобы не было ошибок 404
-
+# ---------- Рулетка ----------
 @app.route('/api/roulette', methods=['POST'])
 @login_required
 def api_roulette():
-    return jsonify({'error': 'Not implemented in minimal version'}), 501
+    from games.roulette import spin_roulette
+    data = request.json
+    bet = int(data.get('bet', 10))
+    bet_type = data.get('bet_type')
+    value = data.get('value')
+    result, win, new_balance, new_bonus = spin_roulette(session['user_id'], bet, bet_type, value)
+    if result is None:
+        return jsonify({'error': 'Недостаточно средств'}), 400
+    return jsonify({'result': result, 'win': win, 'balance': new_balance, 'bonus_balance': new_bonus})
+
+# ---------- Краш ----------
+# (упрощённая версия без фонового потока, для стабильности)
+crash_multiplier = 1.0
+crash_running = True
+crash_bets = {}  # session_id -> {user_id, bet, cashed_out}
+
+@app.route('/api/crash/status')
+def crash_status():
+    return jsonify({'multiplier': crash_multiplier, 'running': crash_running})
 
 @app.route('/api/crash/bet', methods=['POST'])
 @login_required
 def api_crash_bet():
-    return jsonify({'error': 'Not implemented'}), 501
+    global crash_multiplier, crash_running
+    data = request.json
+    bet = int(data.get('bet', 10))
+    db = get_db()
+    user = db.execute("SELECT balance, bonus_balance FROM users WHERE id=?", (session['user_id'],)).fetchone()
+    total = user['balance'] + user['bonus_balance']
+    if total < bet:
+        return jsonify({'error': 'Не хватает'}), 400
+    # Списываем сначала бонусный баланс
+    from_bonus = min(user['bonus_balance'], bet)
+    from_main = bet - from_bonus
+    if from_bonus:
+        db.execute("UPDATE users SET bonus_balance = bonus_balance - ? WHERE id=?", (from_bonus, session['user_id']))
+    if from_main:
+        db.execute("UPDATE users SET balance = balance - ? WHERE id=?", (from_main, session['user_id']))
+    db.commit()
+    import uuid
+    sid = str(uuid.uuid4())
+    crash_bets[sid] = {'user_id': session['user_id'], 'bet': bet, 'cashed_out': False, 'from_bonus': from_bonus, 'from_main': from_main}
+    return jsonify({'session_id': sid, 'balance': user['balance'] - from_main, 'bonus_balance': user['bonus_balance'] - from_bonus})
 
 @app.route('/api/crash/cashout', methods=['POST'])
 @login_required
 def api_crash_cashout():
-    return jsonify({'error': 'Not implemented'}), 501
+    global crash_multiplier
+    data = request.json
+    sid = data.get('session_id')
+    bet_info = crash_bets.get(sid)
+    if not bet_info or bet_info['cashed_out'] or bet_info['user_id'] != session['user_id']:
+        return jsonify({'error': 'Неверная сессия'}), 400
+    bet_info['cashed_out'] = True
+    win_amount = int(bet_info['bet'] * crash_multiplier)
+    # Возвращаем выигрыш на основной баланс
+    db = get_db()
+    db.execute("UPDATE users SET balance = balance + ? WHERE id=?", (win_amount, session['user_id']))
+    db.commit()
+    return jsonify({'win': win_amount})
 
-@app.route('/api/crash/status')
-def crash_status():
-    return jsonify({'multiplier': 1.0, 'running': False})
-
+# ---------- Кости ----------
 @app.route('/api/dice', methods=['POST'])
 @login_required
 def api_dice():
-    return jsonify({'error': 'Not implemented'}), 501
+    from games.dice import roll_dice
+    data = request.json
+    bet = int(data.get('bet', 10))
+    prediction = data.get('prediction')
+    target = int(data.get('target', 50))
+    result, win, new_balance, new_bonus = roll_dice(session['user_id'], bet, prediction, target)
+    if result is None:
+        return jsonify({'error': 'Недостаточно средств'}), 400
+    return jsonify({'result': result, 'win': win, 'balance': new_balance, 'bonus_balance': new_bonus})
 
+# ---------- Бонус-коды ----------
 @app.route('/api/bonus/apply', methods=['POST'])
 @login_required
 def apply_bonus():
-    return jsonify({'error': 'Not implemented'}), 501
+    data = request.json
+    code = data.get('code', '').upper()
+    db = get_db()
+    bonus = db.execute("SELECT id, amount, expires_at FROM bonus_codes WHERE code=? AND used_by IS NULL", (code,)).fetchone()
+    if not bonus:
+        return jsonify({'error': 'Неверный код'}), 400
+    if datetime.now() > datetime.fromisoformat(bonus['expires_at']):
+        return jsonify({'error': 'Код истёк'}), 400
+    db.execute("UPDATE bonus_codes SET used_by=? WHERE id=?", (session['user_id'], bonus['id']))
+    db.execute("UPDATE users SET bonus_balance = bonus_balance + ? WHERE id=?", (bonus['amount'], session['user_id']))
+    db.commit()
+    return jsonify({'ok': True, 'amount': bonus['amount']})
 
+# ---------- Рефералка ----------
 @app.route('/api/referral/link')
 @login_required
 def referral_link():
-    return jsonify({'link': request.host_url + '?ref=' + session['username']})
+    username = session['username']
+    base_url = request.host_url.rstrip('/')
+    return jsonify({'link': f"{base_url}/?ref={username}"})
 
+@app.route('/api/referral/stats')
+@login_required
+def referral_stats():
+    db = get_db()
+    count = db.execute("SELECT COUNT(*) as cnt FROM users WHERE referrer_id=?", (session['user_id'],)).fetchone()['cnt']
+    earnings = db.execute("SELECT SUM(commission) as sum FROM referrals WHERE referrer_id=?", (session['user_id'],)).fetchone()['sum'] or 0
+    return jsonify({'count': count, 'earnings': earnings})
+
+# ---------- Чат ----------
 @app.route('/api/chat/messages', methods=['GET'])
 def get_messages():
     db = get_db()
@@ -300,12 +357,47 @@ def send_message():
     data = request.json
     msg = data.get('message', '').strip()
     if not msg:
-        return jsonify({'error': 'Empty'}), 400
+        return jsonify({'error': 'Пустое сообщение'}), 400
     db = get_db()
-    db.execute("INSERT INTO chat_messages (user_id, username, message) VALUES (?,?,?)",
+    db.execute("INSERT INTO chat_messages (user_id, username, message) VALUES (?, ?, ?)",
                (session['user_id'], session['username'], msg[:200]))
     db.commit()
     return jsonify({'ok': True})
+
+# ---------- Админка ----------
+@app.route('/api/admin/users')
+@admin_required
+def admin_users():
+    db = get_db()
+    users = db.execute("SELECT id, username, balance, bonus_balance, total_bet, total_win, is_admin, last_seen FROM users ORDER BY id DESC").fetchall()
+    return jsonify([dict(u) for u in users])
+
+@app.route('/api/admin/bonus', methods=['POST'])
+@admin_required
+def admin_add_bonus():
+    data = request.json
+    username = data.get('username')
+    amount = int(data.get('amount', 0))
+    db = get_db()
+    user = db.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
+    if not user:
+        return jsonify({'error': 'Пользователь не найден'}), 404
+    db.execute("UPDATE users SET bonus_balance = bonus_balance + ? WHERE id=?", (amount, user['id']))
+    db.commit()
+    return jsonify({'ok': True})
+
+@app.route('/api/admin/generate_code', methods=['POST'])
+@admin_required
+def admin_generate_code():
+    data = request.json
+    amount = int(data.get('amount', 100))
+    code = generate_bonus_code()
+    expires = datetime.now() + timedelta(days=7)
+    db = get_db()
+    db.execute("INSERT INTO bonus_codes (code, amount, expires_at) VALUES (?, ?, ?)",
+               (code, amount, expires.isoformat()))
+    db.commit()
+    return jsonify({'code': code})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
