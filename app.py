@@ -176,34 +176,19 @@ def admin_panel():
 @app.route('/api/register', methods=['POST'])
 def register():
     data = request.json
-    username = data.get('username', '').strip()
-    password = data.get('password', '')
-    email = data.get('email', '')
-    ref = data.get('ref_code', '')
+    username = data.get('username')
+    password = data.get('password')
     if not username or not password:
         return jsonify({'error': 'Заполните поля'})
-    db = get_db()
-    if db.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone():
-        return jsonify({'error': 'Имя занято'})
     hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-    referrer_id = None
-    if ref:
-        ref_user = db.execute("SELECT id FROM users WHERE username=?", (ref,)).fetchone()
-        if ref_user:
-            referrer_id = ref_user['id']
-    cursor = db.execute("INSERT INTO users (username, password, email, referrer_id) VALUES (?,?,?,?)",
-                        (username, hashed, email, referrer_id))
-    db.commit()
-    user_id = cursor.lastrowid
-    if referrer_id:
-        db.execute("UPDATE users SET balance = balance + 100 WHERE id=?", (referrer_id,))
-        db.execute("INSERT INTO referrals (referrer_id, referred_id, commission) VALUES (?,?,?)",
-                   (referrer_id, user_id, 100))
+    db = get_db()
+    try:
+        db.execute("INSERT INTO users (username, password, bonus_balance) VALUES (?, ?, ?)",
+                   (username, hashed, 5000))
         db.commit()
-    session.permanent = True
-    session['user_id'] = user_id
-    session['username'] = username
-    return jsonify({'ok': True, 'user': {'id': user_id, 'username': username, 'balance': 1000}})
+        return jsonify({'ok': True})
+    except sqlite3.IntegrityError:
+        return jsonify({'error': 'Логин занят'})
 
 @app.route('/api/login', methods=['POST'])
 def login():
