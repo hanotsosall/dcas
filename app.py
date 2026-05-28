@@ -339,6 +339,28 @@ def admin_add_bonus():
     db.commit()
     return jsonify({'ok': True})
 
+# ========== АДМИН-МАРШРУТЫ (добавить в app.py) ==========
+@app.route('/api/admin/user/<int:user_id>', methods=['DELETE'])
+@admin_required
+def admin_delete_user(user_id):
+    db = get_db()
+    db.execute("DELETE FROM users WHERE id=? AND is_admin=0", (user_id,))
+    db.commit()
+    return jsonify({'ok': True})
+
+@app.route('/api/admin/generate_code', methods=['POST'])
+@admin_required
+def admin_generate_code():
+    data = request.json
+    amount = int(data.get('amount', 100))
+    code = generate_bonus_code()
+    expires = datetime.now() + timedelta(days=7)
+    db = get_db()
+    db.execute("INSERT INTO bonus_codes (code, amount, expires_at) VALUES (?, ?, ?)",
+               (code, amount, expires.isoformat()))
+    db.commit()
+    return jsonify({'code': code})
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
     app.run(host='0.0.0.0', port=port, debug=False)
