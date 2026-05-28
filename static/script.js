@@ -46,10 +46,20 @@ function drawReels(reels) {
 }
 
 async function animateSpin(finalReels) {
-    for (let i = 0; i <= 12; i++) {
-        const fake = Array(5).fill().map(() => Array(3).fill({ name: '💎', color: '#555' }));
-        drawReels(fake);
-        await new Promise(r => setTimeout(r, 45));
+    // Показываем пустые барабаны
+    const emptyReels = Array(5).fill().map(() => Array(3).fill({ name: '✨', color: '#555' }));
+    drawReels(emptyReels);
+    await new Promise(r => setTimeout(r, 100));
+    // Анимация "падения" каждого столбца с задержкой
+    for (let col = 0; col < REELS; col++) {
+        for (let step = 0; step < 8; step++) {
+            const tempReels = finalReels.map((c, idx) => {
+                if (idx <= col) return c;
+                return emptyReels[idx];
+            });
+            drawReels(tempReels);
+            await new Promise(r => setTimeout(r, 40));
+        }
     }
     drawReels(finalReels);
 }
