@@ -7,6 +7,7 @@ import string
 from datetime import datetime, timedelta
 from functools import wraps
 from flask import Flask, render_template, request, jsonify, session, g, redirect, url_for
+from db_utils import get_db, update_balance, log_transaction
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dragon_god_key_2025')
