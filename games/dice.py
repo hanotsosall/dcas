@@ -1,5 +1,5 @@
 import random
-from database import get_db
+from db_utils import get_db
 
 def roll_dice(user_id, bet, prediction, target=50):
     db = get_db()
