@@ -20,24 +20,28 @@ def generate_reels():
 def calculate_win(reels, bet):
     win = 0
     bonus_count = 0
-    for line in PAY_LINES:
+    # Линии: 5 штук
+    lines = [
+        [(0,0),(1,0),(2,0),(3,0),(4,0)],
+        [(0,1),(1,1),(2,1),(3,1),(4,1)],
+        [(0,2),(1,2),(2,2),(3,2),(4,2)],
+        [(0,0),(1,1),(2,2),(3,1),(4,0)],
+        [(0,2),(1,1),(2,0),(3,1),(4,2)]
+    ]
+    for line in lines:
         first = reels[line[0][0]][line[0][1]]
         if first.get('bonus', False):
             continue
-        all_match = True
-        for (col, row) in line[1:]:
-            if reels[col][row]['name'] != first['name']:
-                all_match = False
-                break
-        if all_match:
-            win += bet * first['value']
+        if all(reels[x][y]['name'] == first['name'] for x,y in line[1:]):
+            win += bet * first.get('value', 2)
+    # Джекпот за 5 семёрок в центре
+    if all(reels[i][1]['name'] == "7️⃣" for i in range(5)):
+        win += 5000
+    # Бонусные драконы
     for col in reels:
         for sym in col:
-            if sym.get('bonus', False):
+            if sym.get('bonus'):
                 bonus_count += 1
-    center = [reels[i][1] for i in range(5)]
-    if all(s['name'] == "7️⃣" for s in center):
-        win += 5000
     return win, bonus_count
 
 def spin_slots(user_id, bet, is_freespin=False):
