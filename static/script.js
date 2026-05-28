@@ -495,3 +495,24 @@ if (menuToggle && sidebar) {
         });
     });
 }
+
+function drawReels(reels, winLines = null) {
+    // ... (прежний код рисования символов)
+    if (winLines && winLines.length) {
+        ctx.beginPath();
+        ctx.strokeStyle = '#ff3366';
+        ctx.lineWidth = 4;
+        ctx.shadowBlur = 0;
+        for (let line of winLines) {
+            const [col1,row1] = line[0];
+            const [col2,row2] = line[line.length-1];
+            const x1 = 25 + col1*(REEL_W+10) + (REEL_W-8)/2;
+            const y1 = 30 + row1*SYMB_H + (SYMB_H-10)/2;
+            const x2 = 25 + col2*(REEL_W+10) + (REEL_W-8)/2;
+            const y2 = 30 + row2*SYMB_H + (SYMB_H-10)/2;
+            ctx.moveTo(x1,y1);
+            ctx.lineTo(x2,y2);
+            ctx.stroke();
+        }
+    }
+}
