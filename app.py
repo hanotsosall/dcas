@@ -7,6 +7,9 @@ import time
 from datetime import datetime, timedelta
 from functools import wraps
 from flask import Flask, render_template, request, jsonify, session, g, redirect, url_for
+from datetime import datetime, timedelta
+import random
+import string
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dragon_god_key_2025')
@@ -14,6 +17,10 @@ app.permanent_session_lifetime = timedelta(days=7)
 
 # ---------- Подключение к БД ----------
 DATABASE = 'casino.db'
+
+def generate_bonus_code(length=12):
+    """Генерация случайного бонус-кода"""
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
 
 def get_db():
     db = getattr(g, '_database', None)
@@ -339,12 +346,21 @@ def admin_add_bonus():
     db.commit()
     return jsonify({'ok': True})
 
-# ========== АДМИН-МАРШРУТЫ (добавить в app.py) ==========
+# ========== АДМИН-МАРШРУТЫ (расширение) ==========
 @app.route('/api/admin/user/<int:user_id>', methods=['DELETE'])
 @admin_required
 def admin_delete_user(user_id):
     db = get_db()
-    db.execute("DELETE FROM users WHERE id=? AND is_admin=0", (user_id,))
+    # Нельзя удалить админа
+    user = db.execute("SELECT is_admin FROM users WHERE id=?", (user_id,)).fetchone()
+    if not user:
+        return jsonify({'error': 'Пользователь не найден'}), 404
+    if user['is_admin']:
+        return jsonify({'error': 'Нельзя удалить администратора'}), 403
+    db.execute("DELETE FROM users WHERE id=?", (user_id,))
+    db.execute("DELETE FROM transactions WHERE user_id=?", (user_id,))
+    db.execute("DELETE FROM spin_log WHERE user_id=?", (user_id,))
+    db.execute("DELETE FROM referrals WHERE referrer_id=? OR referred_id=?", (user_id, user_id))
     db.commit()
     return jsonify({'ok': True})
 
@@ -359,7 +375,101 @@ def admin_generate_code():
     db.execute("INSERT INTO bonus_codes (code, amount, expires_at) VALUES (?, ?, ?)",
                (code, amount, expires.isoformat()))
     db.commit()
-    return jsonify({'code': code})
+    return jsonify({'code': code, 'amount': amount})
+
+@app.route('/api/admin/add_money', methods=['POST'])
+@admin_required
+def admin_add_money():
+    data = request.json
+    username = data.get('username')
+    amount = int(data.get('amount', 0))
+    db = get_db()
+    user = db.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
+    if not user:
+        return jsonify({'error': 'Пользователь не найден'}), 404
+    db.execute("UPDATE users SET balance = balance + ? WHERE id=?", (amount, user['id']))
+    db.execute("INSERT INTO transactions (user_id, amount, type) VALUES (?, ?, ?)",
+               (user['id'], amount, 'admin_bonus'))
+    db.commit()
+    return jsonify({'ok': True})
+
+# ========== СТАТИСТИКА ДЛЯ АДМИНА ==========
+@app.route('/api/admin/stats')
+@admin_required
+def admin_stats():
+    db = get_db()
+    total_users = db.execute("SELECT COUNT(*) as cnt FROM users").fetchone()['cnt']
+    total_balance = db.execute("SELECT SUM(balance) as sum FROM users").fetchone()['sum'] or 0
+    total_bets = db.execute("SELECT SUM(amount) as sum FROM transactions WHERE type='bet'").fetchone()['sum'] or 0
+    total_wins = db.execute("SELECT SUM(amount) as sum FROM transactions WHERE type='win' OR type='crash_win' OR type='roulette'").fetchone()['sum'] or 0
+    return jsonify({
+        'total_users': total_users,
+        'total_balance': total_balance,
+        'total_bets': total_bets,
+        'total_wins': total_wins
+    })
+
+# ========== БОНУС-КОДЫ (применение) ==========
+@app.route('/api/bonus/apply', methods=['POST'])
+@login_required
+def apply_bonus_code():
+    data = request.json
+    code = data.get('code', '').upper()
+    db = get_db()
+    bonus = db.execute("SELECT id, amount, expires_at FROM bonus_codes WHERE code=? AND used_by IS NULL", (code,)).fetchone()
+    if not bonus:
+        return jsonify({'error': 'Неверный или уже использованный код'}), 400
+    expires_at = datetime.fromisoformat(bonus['expires_at'])
+    if datetime.now() > expires_at:
+        return jsonify({'error': 'Код истёк'}), 400
+    db.execute("UPDATE bonus_codes SET used_by=? WHERE id=?", (session['user_id'], bonus['id']))
+    db.execute("UPDATE users SET balance = balance + ? WHERE id=?", (bonus['amount'], session['user_id']))
+    db.execute("INSERT INTO transactions (user_id, amount, type) VALUES (?, ?, ?)",
+               (session['user_id'], bonus['amount'], 'bonus_code'))
+    db.commit()
+    return jsonify({'ok': True, 'amount': bonus['amount']})
+
+# ========== РЕФЕРАЛЬНАЯ ССЫЛКА ==========
+@app.route('/api/referral/link')
+@login_required
+def referral_link():
+    username = session['username']
+    base_url = request.host_url.rstrip('/')
+    return jsonify({'link': f"{base_url}/?ref={username}"})
+
+@app.route('/api/referral/stats')
+@login_required
+def referral_stats():
+    db = get_db()
+    referred = db.execute("SELECT COUNT(*) as cnt FROM users WHERE referrer_id=?", (session['user_id'],)).fetchone()['cnt']
+    earnings = db.execute("SELECT SUM(commission) as sum FROM referrals WHERE referrer_id=?", (session['user_id'],)).fetchone()['sum'] or 0
+    return jsonify({'count': referred, 'earnings': earnings})
+
+# ========== ПРОФИЛЬ (расширенный) ==========
+@app.route('/api/user/profile')
+@login_required
+def user_profile():
+    db = get_db()
+    user = db.execute("SELECT id, username, balance, vip_level, total_bet, total_win, created_at FROM users WHERE id=?", (session['user_id'],)).fetchone()
+    if not user:
+        return jsonify({'error': 'Not found'}), 404
+    # Статистика по играм
+    slots = db.execute("SELECT COUNT(*) as cnt, SUM(win) as total_win FROM spin_log WHERE user_id=? AND game='slots'", (session['user_id'],)).fetchone()
+    roulette = db.execute("SELECT COUNT(*) as cnt, SUM(win) as total_win FROM spin_log WHERE user_id=? AND game='roulette'", (session['user_id'],)).fetchone()
+    crash = db.execute("SELECT COUNT(*) as cnt, SUM(win) as total_win FROM spin_log WHERE user_id=? AND game='crash'", (session['user_id'],)).fetchone()
+    dice = db.execute("SELECT COUNT(*) as cnt, SUM(win) as total_win FROM spin_log WHERE user_id=? AND game='dice'", (session['user_id'],)).fetchone()
+    return jsonify({
+        'username': user['username'],
+        'balance': user['balance'],
+        'vip': user['vip_level'],
+        'total_bet': user['total_bet'],
+        'total_win': user['total_win'],
+        'registered': user['created_at'],
+        'slots_played': slots['cnt'] if slots else 0,
+        'roulette_played': roulette['cnt'] if roulette else 0,
+        'crash_played': crash['cnt'] if crash else 0,
+        'dice_played': dice['cnt'] if dice else 0
+    })
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 8080))
