@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>🐉 DRAGON GOD CASINO – Элитное казино</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Montserrat:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="shortcut icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐉</text></svg>">
+</head>
+<body>
+    <div class="particles" id="particles"></div>
+    <div class="mobile-menu-toggle" id="mobileMenuToggle">☰</div>
+    
+    <div class="app-container">
+        <!-- Боковое меню -->
+        <aside class="sidebar" id="sidebar">
+            <div class="logo">
+                <span class="dragon-icon">🐉</span>
+                <span class="logo-text">DRAGON<span class="accent">GOD</span></span>
+            </div>
+            <nav class="nav-menu">
+                <a href="#" class="nav-item active" data-page="slots">
+                    <span class="nav-icon">🎰</span>
+                    <span>Слоты</span>
+                </a>
+                <a href="#" class="nav-item" data-page="roulette">
+                    <span class="nav-icon">🎡</span>
+                    <span>Рулетка</span>
+                </a>
+                <a href="#" class="nav-item" data-page="crash">
+                    <span class="nav-icon">💥</span>
+                    <span>Краш</span>
+                </a>
+                <a href="#" class="nav-item" data-page="dice">
+                    <span class="nav-icon">🎲</span>
+                    <span>Кости</span>
+                </a>
+                <a href="#" class="nav-item" data-page="profile">
+                    <span class="nav-icon">👤</span>
+                    <span>Профиль</span>
+                </a>
+                <a href="#" class="nav-item" data-page="affiliate">
+                    <span class="nav-icon">🤝</span>
+                    <span>Партнёры</span>
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="online-count">
+                    <span class="online-dot"></span>
+                    <span id="onlineCount">1,234</span> онлайн
+                </div>
+                <div class="version">v3.7.2 | Dragon God</div>
+            </div>
+        </aside>
+
+        <!-- Основной контент -->
+        <main class="main-content">
+            <header class="top-bar">
+                <div class="balance-container">
+                    <div class="balance-card">
+                        <span class="balance-label">💎 ОСНОВНОЙ СЧЁТ</span>
+                        <span class="balance-value" id="mainBalance">0.00</span>
+                    </div>
+                    <div class="balance-card bonus">
+                        <span class="balance-label">🎁 БОНУСНЫЙ</span>
+                        <span class="balance-value" id="bonusBalance">0.00</span>
+                    </div>
+                </div>
+                <div class="user-info">
+                    <div class="vip-badge" id="vipBadge">VIP 0</div>
+                    <div class="username" id="usernameDisplay">Гость</div>
+                    <button class="logout-btn" id="logoutBtn" style="display:none;">🚪</button>
+                </div>
+            </header>
+
+            <!-- Страница авторизации -->
+            <div id="authPage" class="page active">
+                <div class="auth-container">
+                    <div class="auth-tabs">
+                        <button class="auth-tab active" data-tab="login">Вход</button>
+                        <button class="auth-tab" data-tab="register">Регистрация</button>
+                    </div>
+                    <div class="auth-panel active" id="loginPanel">
+                        <div class="input-group">
+                            <input type="text" id="loginUsername" placeholder="Имя дракона">
+                        </div>
+                        <div class="input-group">
+                            <input type="password" id="loginPassword" placeholder="Пароль">
+                        </div>
+                        <button id="doLoginBtn" class="auth-btn">Войти в пещеру</button>
+                        <div class="demo-hint">Демо: dragon / dragon123</div>
+                    </div>
+                    <div class="auth-panel" id="registerPanel">
+                        <div class="input-group">
+                            <input type="text" id="regUsername" placeholder="Имя дракона">
+                        </div>
+                        <div class="input-group">
+                            <input type="email" id="regEmail" placeholder="Email (опционально)">
+                        </div>
+                        <div class="input-group">
+                            <input type="password" id="regPassword" placeholder="Пароль">
+                        </div>
+                        <div class="input-group">
+                            <input type="text" id="regReferral" placeholder="Реферальный код (если есть)">
+                        </div>
+                        <button id="doRegBtn" class="auth-btn">Стать драконом</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Игровые страницы -->
+            <div id="slotsPage" class="page">
+                <div class="game-header">
+                    <h2>🐉 DRAGON SLOTS</h2>
+                    <p>5 барабанов, 5 линий, бонус-дракон даёт фриспины, 5 семёрок — джекпот 5000</p>
+                </div>
+                <div class="slot-machine">
+                    <canvas id="slotCanvas" width="800" height="480"></canvas>
+                    <div class="slot-controls">
+                        <div class="bet-selector">
+                            <button class="bet-btn" data-bet="5">5</button>
+                            <button class="bet-btn" data-bet="10">10</button>
+                            <button class="bet-btn" data-bet="25">25</button>
+                            <button class="bet-btn" data-bet="50">50</button>
+                            <button class="bet-btn" data-bet="100">100</button>
+                            <div class="custom-bet">
+                                <input type="number" id="customBet" value="10" min="1" step="1">
+                            </div>
+                        </div>
+                        <button id="spinBtn" class="spin-button">🎰 КРУТИТЬ</button>
+                    </div>
+                    <div class="win-animation" id="winAnimation"></div>
+                    <div class="freespin-counter" id="freespinCounter"></div>
+                </div>
+            </div>
+
+            <div id="roulettePage" class="page">
+                <div class="game-header">
+                    <h2>🎡 ЕВРОПЕЙСКАЯ РУЛЕТКА</h2>
+                    <p>Ставьте на число, цвет, чёт/нечет, дюжину или колонку</p>
+                </div>
+                <div class="roulette-container">
+                    <div class="roulette-wheel" id="rouletteWheel"></div>
+                    <div class="roulette-board" id="rouletteBoard"></div>
+                    <div class="roulette-controls">
+                        <div class="bet-input-group">
+                            <label>Ставка:</label>
+                            <input type="number" id="rouletteBet" value="10" min="1">
+                        </div>
+                        <div class="bet-options" id="rouletteOptions"></div>
+                        <button id="rouletteSpinBtn" class="spin-button">🎡 КРУТИТЬ</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="crashPage" class="page">
+                <div class="game-header">
+                    <h2>💥 CRASH – УСПЕЙ ЗАБРАТЬ</h2>
+                    <p>Коэффициент растёт, но в любой момент может рухнуть</p>
+                </div>
+                <div class="crash-container">
+                    <div class="crash-chart" id="crashChart">
+                        <div class="multiplier-big" id="crashMultiplier">1.00x</div>
+                        <canvas id="crashCanvas" width="600" height="200"></canvas>
+                    </div>
+                    <div class="crash-controls">
+                        <input type="number" id="crashBet" placeholder="Ставка" value="10">
+                        <input type="number" id="crashAutoCashout" placeholder="Автовывод (x)" step="0.1" value="2.0">
+                        <button id="crashBetBtn" class="crash-bet">📈 ПОСТАВИТЬ</button>
+                        <button id="crashCashoutBtn" class="crash-cashout" disabled>💰 ЗАБРАТЬ</button>
+                    </div>
+                    <div class="crash-history" id="crashHistory"></div>
+                </div>
+            </div>
+
+            <div id="dicePage" class="page">
+                <div class="game-header">
+                    <h2>🎲 КОСТИ (DICE)</h2>
+                    <p>Угадайте, выпадет число выше или ниже цели</p>
+                </div>
+                <div class="dice-container">
+                    <div class="dice-result" id="diceResult">🎲</div>
+                    <div class="dice-controls">
+                        <div class="dice-bet">
+                            <label>Ставка:</label>
+                            <input type="number" id="diceBet" value="10" min="1">
+                        </div>
+                        <div class="dice-prediction">
+                            <button class="dice-pred-btn" data-pred="under">Меньше 50</button>
+                            <button class="dice-pred-btn" data-pred="over">Больше 50</button>
+                            <button class="dice-pred-btn" data-pred="number">Точное число</button>
+                        </div>
+                        <div class="dice-target" id="diceTargetContainer" style="display:none;">
+                            <input type="number" id="diceTarget" placeholder="Число 1-100" min="1" max="100">
+                        </div>
+                        <button id="dicePlayBtn" class="spin-button">🎲 БРОСИТЬ</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="profilePage" class="page">
+                <div class="profile-container">
+                    <div class="profile-header">
+                        <div class="profile-avatar">🐉</div>
+                        <div class="profile-info">
+                            <h3 id="profileUsername"></h3>
+                            <p>VIP уровень: <span id="profileVip">0</span></p>
+                            <p>Общий выигрыш: <span id="profileTotalWin">0</span></p>
+                            <p>Общая ставка: <span id="profileTotalBet">0</span></p>
+                        </div>
+                    </div>
+                    <div class="profile-stats">
+                        <div class="stat-card">🎰 Слоты: <span id="slotsPlayed">0</span></div>
+                        <div class="stat-card">🎡 Рулетка: <span id="roulettePlayed">0</span></div>
+                        <div class="stat-card">💥 Краш: <span id="crashPlayed">0</span></div>
+                        <div class="stat-card">🎲 Кости: <span id="dicePlayed">0</span></div>
+                    </div>
+                    <div class="bonus-code-section">
+                        <h4>🎁 Активировать бонус-код</h4>
+                        <div class="bonus-input-group">
+                            <input type="text" id="bonusCodeInput" placeholder="Введите код">
+                            <button id="applyBonusBtn">Активировать</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="affiliatePage" class="page">
+                <div class="affiliate-container">
+                    <h2>🤝 ПАРТНЁРСКАЯ ПРОГРАММА</h2>
+                    <p>Приглашайте друзей и получайте 10% от их проигрышей навсегда!</p>
+                    <div class="referral-link-box">
+                        <input type="text" id="referralLink" readonly>
+                        <button id="copyLinkBtn">Копировать</button>
+                    </div>
+                    <div class="referral-stats">
+                        <div>Приглашено: <span id="refCount">0</span></div>
+                        <div>Заработано: <span id="refEarnings">0</span> самоцветов</div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
